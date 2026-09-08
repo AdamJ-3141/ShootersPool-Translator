@@ -2,7 +2,7 @@
 
 [![GitHub Release](https://img.shields.io/github/v/release/AdamJ-3141/ShootersPool-Translator?style=flat-square&color=007acc)](https://github.com/AdamJ-3141/ShootersPool-Translator/releases)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-007acc.svg?style=flat-square)](https://choosealicense.com/licenses/gpl-3.0/)
-[![Python Application](https://img.shields.io/badge/Python-3.10-007acc?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Python Application](https://img.shields.io/badge/Python-3.14-007acc?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 
 A lightweight, always-on-top transparent overlay for ShootersPool Online that extracts in-game chat and provides real-time AI translation using the Groq API.
 
