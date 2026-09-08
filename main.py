@@ -20,23 +20,10 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-pm = pymem.Pymem("ShootersPool Online Standalone.exe")
-cegui_module = pymem.process.module_from_name(pm.process_handle, "CEGUIBase.dll")
+pm = None
+cegui_module = None
 base_offset = 0x001F99E0
 offsets = [0x2C, 0x1EC, 0x14, 0x1EC, 0x0, 0x360, 0x0]
-
-buffer = ctypes.create_unicode_buffer(1024)
-size = wintypes.DWORD(1024)
-ctypes.windll.kernel32.QueryFullProcessImageNameW(pm.process_handle, 0, buffer, ctypes.byref(size))
-exe_path = buffer.value
-
-if exe_path:
-    key_path = r"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
-    try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-            winreg.SetValueEx(key, exe_path, 0, winreg.REG_SZ, "~ DISABLEDXMAXIMIZEDWINDOWEDMODE")
-    except Exception as e:
-        logging.error(f"Window Maximisation Error: {e}")
 
 
 LANGUAGE_MAP = {
@@ -71,7 +58,7 @@ def make_game_fake_borderless(window_title):
         screen_width = user32.GetSystemMetrics(0)
         screen_height = user32.GetSystemMetrics(1)
 
-        # Force the window to update its frame (0x0027 = NOMOVE | NOSIZE | NOZORDER | FRAMECHANGED)
+        # Force window to update its frame (0x0027 = NOMOVE | NOSIZE | NOZORDER | FRAMECHANGED)
         user32.SetWindowPos(hwnd, 0, 0, 0, screen_width, screen_height, 0x0024)
 
 STATE_ROLE = Qt.UserRole + 1
@@ -90,7 +77,7 @@ def read_chat_log_worker():
     while True:
         try:
             chat_address = get_pointer_address(cegui_module.lpBaseOfDll, offsets)
-            chunk_size = 256  # Reduced from 4096 to safely approach page boundaries
+            chunk_size = 256
             max_size = 1048576
             chat_bytes = bytearray()
             current_addr = chat_address
@@ -99,8 +86,8 @@ def read_chat_log_worker():
                 try:
                     chunk = pm.read_bytes(current_addr, chunk_size)
                 except pymem.exception.MemoryReadError:
-                    # We hit a memory boundary (Error 299). Stop reading chunks
-                    # and proceed with the bytes we successfully gathered so far.
+                    # hit a memory boundary (Error 299). Stop reading chunks
+                    # and proceed with the bytes gathered so far.
                     break
 
                 null_pos = -1
@@ -117,7 +104,7 @@ def read_chat_log_worker():
 
             chat_text = chat_bytes.decode("utf-32le", errors="ignore")
 
-            # Only push to queue if we actually extracted something
+            # Only push to queue if actually extracted something
             if chat_text:
                 if log_queue.full():
                     try:
@@ -127,7 +114,6 @@ def read_chat_log_worker():
                 log_queue.put(chat_text)
 
         except Exception as error:
-            # This now only catches base pointer resolution failures, not string read failures
             logging.warning(f"Memory Pointer Error: {error}")
 
         time.sleep(1)
@@ -258,7 +244,7 @@ class ChatOverlay(QWidget):
             "QPushButton { color: white; background: rgba(0, 0, 0, 150); font-weight: bold; border: none; }"
             "QPushButton:hover { background: red; }"
         )
-        # Use QApplication.quit() to ensure all threads and hidden windows terminate safely
+        # ensure all threads and hidden windows terminate safely
         self.close_btn.clicked.connect(QApplication.quit)
 
         top_bar_layout.addWidget(self.drag_tab)
@@ -428,7 +414,7 @@ class ChatOverlay(QWidget):
 
         self.reply_btn.setText("...")
 
-        # Store reference to prevent garbage collection during the request
+        # Store reference to prevent garbage collection during request
         self.rev_thread = ReverseTranslationThread(self.client, text_to_translate, self.lang_english, target_lang)
         self.rev_thread.translation_done.connect(self.on_reply_translated)
         self.rev_thread.start()
@@ -475,22 +461,22 @@ class WelcomeWindow(QWidget):
         layout.addWidget(self.lang_combo_box)
 
 
-        # 1. Instructions
+        # Instructions
         self.instructions = QLabel(LOCALISATION["instructions1"][self.lang_code])
         self.instructions.setWordWrap(True)
         layout.addWidget(self.instructions)
 
-        # 2. Instructions2
+        # Instructions2
         self.instructions2 = QLabel(LOCALISATION["instructions2"][self.lang_code])
         self.instructions2.setWordWrap(True)
         layout.addWidget(self.instructions2)
 
-        # 3. API Key Link
+        # API Key Link
         self.api_link = QLabel(LOCALISATION["instructions3"][self.lang_code])
         self.api_link.setOpenExternalLinks(True)
         layout.addWidget(self.api_link)
 
-        # 4. Input Field
+        # Input Field
         self.api_input = QLineEdit()
         self.api_input.setPlaceholderText(LOCALISATION["instructions4"][self.lang_code])
         self.api_input.setEchoMode(QLineEdit.Password)
@@ -499,7 +485,12 @@ class WelcomeWindow(QWidget):
             self.api_input.setText(saved_key)
         layout.addWidget(self.api_input)
 
-        # 5. Launch Button
+        self.error_label = QLabel("")
+        self.error_label.setStyleSheet("color: #ff4d4d; font-weight: bold;")
+        self.error_label.hide()
+        layout.addWidget(self.error_label)
+
+        # Launch Button
         self.launch_btn = QPushButton(LOCALISATION["start"][self.lang_code])
         self.launch_btn.clicked.connect(self.launch_overlay)
         layout.addWidget(self.launch_btn)
@@ -509,15 +500,40 @@ class WelcomeWindow(QWidget):
         self.overlay = None
 
     def launch_overlay(self):
+        global pm, cegui_module
+
         user_key = self.api_input.text().strip()
         if user_key:
             self.settings.setValue("api_key", user_key)
 
         try:
+            # hook into game memory
+            pm = pymem.Pymem("ShootersPool Online Standalone.exe")
+            cegui_module = pymem.process.module_from_name(pm.process_handle, "CEGUIBase.dll")
+
+            # Apply Windows maximization registry fix
+            buffer = ctypes.create_unicode_buffer(1024)
+            size = wintypes.DWORD(1024)
+            ctypes.windll.kernel32.QueryFullProcessImageNameW(pm.process_handle, 0, buffer, ctypes.byref(size))
+            exe_path = buffer.value
+
+            if exe_path:
+                key_path = r"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+                try:
+                    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                        winreg.SetValueEx(key, exe_path, 0, winreg.REG_SZ, "~ DISABLEDXMAXIMIZEDWINDOWEDMODE")
+                except Exception as e:
+                    logging.error(f"Window Maximisation Error: {e}")
+
+            self.error_label.hide()
             self.overlay = ChatOverlay(api_key=user_key, lang=self.lang_selected)
             self.overlay.show()
             make_game_fake_borderless("ShootersPool")
             self.hide()
+
+        except pymem.exception.ProcessNotFound:
+            self.error_label.setText("Make sure you're in a ShootersPool Lobby!")
+            self.error_label.show()
         except Exception as error:
             logging.error(f"Fatal Overlay Error: {error}")
 
