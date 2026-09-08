@@ -6,6 +6,8 @@
 
 A lightweight, always-on-top transparent overlay for ShootersPool Online that extracts in-game chat and provides real-time AI translation using the Groq API.
 
+⚠️⚠️ WINDOWS ONLY ⚠️⚠️
+
 ## Features
 * Extracts chat logs directly from game memory without injecting DLLs.
 * Provides on-demand AI translation to 11 different languages using the Groq API.
