@@ -2,6 +2,7 @@ import json
 import sys
 import time
 import threading
+import os
 import queue
 import pymem.process
 from groq import Groq
@@ -19,6 +20,11 @@ logging.basicConfig(
     level=logging.WARNING,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+def get_resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
 
 pm = None
 cegui_module = None
@@ -39,7 +45,7 @@ LANGUAGE_MAP = {
     "한국어": ("ko", "Korean"),
     "日本語": ("ja", "Japanese")
 }
-with open("localisation.json", "r", encoding="utf-8") as f:
+with open(get_resource_path("localisation.json"), "r", encoding="utf-8") as f:
     LOCALISATION = json.load(f)
 
 def make_game_fake_borderless(window_title):

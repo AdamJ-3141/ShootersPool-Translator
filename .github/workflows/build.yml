@@ -29,7 +29,7 @@ jobs:
 
     - name: Build with PyInstaller
       run: |
-        pyinstaller --onefile --noconsole --name "ShootersPool_Translator" main.py
+        pyinstaller --onefile --noconsole --add-data "localisation.json;." --name "ShootersPool_Translator" main.py
 
     - name: Upload Release Asset
       uses: softprops/action-gh-release@v1
