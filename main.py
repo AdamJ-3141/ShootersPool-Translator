@@ -90,13 +90,19 @@ def read_chat_log_worker():
     while True:
         try:
             chat_address = get_pointer_address(cegui_module.lpBaseOfDll, offsets)
-            chunk_size = 4096
+            chunk_size = 256  # Reduced from 4096 to safely approach page boundaries
             max_size = 1048576
             chat_bytes = bytearray()
             current_addr = chat_address
 
             while len(chat_bytes) < max_size:
-                chunk = pm.read_bytes(current_addr, chunk_size)
+                try:
+                    chunk = pm.read_bytes(current_addr, chunk_size)
+                except pymem.exception.MemoryReadError:
+                    # We hit a memory boundary (Error 299). Stop reading chunks
+                    # and proceed with the bytes we successfully gathered so far.
+                    break
+
                 null_pos = -1
                 for i in range(0, len(chunk) - 3, 4):
                     if chunk[i] == 0 and chunk[i + 1] == 0 and chunk[i + 2] == 0 and chunk[i + 3] == 0:
@@ -110,14 +116,20 @@ def read_chat_log_worker():
                     current_addr += chunk_size
 
             chat_text = chat_bytes.decode("utf-32le", errors="ignore")
-            if log_queue.full():
-                try:
-                    log_queue.get_nowait()
-                except queue.Empty:
-                    pass
-            log_queue.put(chat_text)
+
+            # Only push to queue if we actually extracted something
+            if chat_text:
+                if log_queue.full():
+                    try:
+                        log_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                log_queue.put(chat_text)
+
         except Exception as error:
-            logging.warning(f"Memory Read Error: {error}")
+            # This now only catches base pointer resolution failures, not string read failures
+            logging.warning(f"Memory Pointer Error: {error}")
+
         time.sleep(1)
 
 
@@ -310,28 +322,36 @@ class ChatOverlay(QWidget):
             message_log = format_chat_log(chat_content)
 
             new_items = []
+            missing_prefix = []
 
             if not message_log:
                 pass
             elif not self.full_log:
                 new_items = message_log
             else:
-                # Use up to the last 3 messages as a unique anchor
-                anchor_size = min(3, len(self.full_log))
-                anchor = self.full_log[-anchor_size:]
-
-                # Search backwards through the new log for this anchor
                 match_index = -1
-                for i in range(len(message_log) - anchor_size, -1, -1):
-                    if message_log[i: i + anchor_size] == anchor:
-                        match_index = i + anchor_size
+                match_start = -1
+                match_size = 0
+                max_anchor_size = min(5, len(self.full_log), len(message_log))
+
+                for size in range(max_anchor_size, 0, -1):
+                    anchor = self.full_log[-size:]
+                    for i in range(len(message_log) - size, -1, -1):
+                        if message_log[i: i + size] == anchor:
+                            match_index = i + size
+                            match_start = i
+                            match_size = size
+                            break
+                    if match_index != -1:
                         break
 
                 if match_index != -1:
-                    # Anchor found. Extract only the messages that come after it.
                     new_items = message_log[match_index:]
+                    if match_start > 0:
+                        old_prefix_len = len(self.full_log) - match_size
+                        if match_start > old_prefix_len:
+                            missing_prefix = message_log[:match_start - old_prefix_len]
                 else:
-                    # Anchor failed. Check if the chat just shrank (is the new log a subset of our history?)
                     is_subset = False
                     for i in range(len(self.full_log) - len(message_log) + 1):
                         if self.full_log[i: i + len(message_log)] == message_log:
@@ -339,10 +359,22 @@ class ChatOverlay(QWidget):
                             break
 
                     if not is_subset:
-                        # The memory is completely unrecognizable. Reset for a new room.
+                        logging.warning(
+                            f"WIPING UI. Memory mismatch.\n"
+                            f"Current full_log (last 3): {self.full_log[-3:]}\n"
+                            f"New message_log: {message_log}"
+                        )
                         self.chat_list.clear()
                         self.full_log = []
                         new_items = message_log
+
+            for i, (author, msg) in enumerate(missing_prefix):
+                self.full_log.insert(i, (author, msg))
+                display_text = f"{author}: {msg}"
+                item = QListWidgetItem(display_text)
+                item.setData(STATE_ROLE, "idle")
+                item.setData(Qt.UserRole, msg)
+                self.chat_list.insertItem(i, item)
 
             for author, msg in new_items:
                 self.full_log.append((author, msg))
