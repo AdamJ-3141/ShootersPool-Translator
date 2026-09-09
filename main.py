@@ -15,8 +15,15 @@ import winreg
 import re
 import logging
 
+if getattr(sys, 'frozen', False):
+    app_dir = os.path.dirname(sys.executable)
+else:
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+
+log_file_path = os.path.join(app_dir, 'translator_debug.log')
+
 logging.basicConfig(
-    filename='translator_debug.log',
+    filename=log_file_path,
     level=logging.WARNING,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
